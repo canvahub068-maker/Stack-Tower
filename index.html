@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stack Tower – Tap to Stack</title>
+<meta name="description" content="Tap to drop blocks and build the tallest tower. Free one-tap game.">
+
+<!-- ADSENSE: replace ca-pub-XXXXXXXXXXXXXXXX with your publisher ID -->
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX" crossorigin="anonymous"></script>
+
+<style>
+:root{--bg:#10222b;--ink:#f3efe6;--muted:#8fa7ae;--accent:#ffb347}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:Georgia,"Times New Roman",serif;
+  padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0);min-height:100%}
+.page{max-width:420px;margin:0 auto;padding:10px;display:flex;flex-direction:column;gap:10px}
+.ad{min-height:60px;background:#17303b;border:1px dashed #2c4a57;border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--muted);font:12px system-ui,sans-serif;overflow:hidden}
+.ad ins{display:block;width:100%}
+header{display:flex;justify-content:space-between;align-items:baseline}
+h1{font-size:24px;margin:0;letter-spacing:.5px}
+.scores{font:14px system-ui,sans-serif;color:var(--muted)}
+.scores b{color:var(--ink);font-size:18px}
+.wrap{position:relative;border-radius:10px;overflow:hidden;background:linear-gradient(#1d4352,#0c1a21)}
+canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+.msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;background:rgba(8,18,23,.72)}
+.msg.hide{display:none}
+.msg h2{font-size:34px;margin:0}
+.msg p{margin:0;color:var(--muted);font:15px system-ui,sans-serif}
+button{font:600 17px system-ui,sans-serif;background:var(--accent);color:#1a1205;border:0;border-radius:999px;padding:12px 32px;cursor:pointer}
+button:focus-visible{outline:3px solid #fff;outline-offset:2px}
+footer{font:12px/1.5 system-ui,sans-serif;color:var(--muted);text-align:center}
+footer a{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- AD SLOT 1 (top banner): replace data-ad-client and data-ad-slot -->
+  <div class="ad">
+    <ins class="adsbygoogle" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" data-ad-slot="1111111111" data-ad-format="horizontal" data-full-width-responsive="true"></ins>
+  </div>
+
+  <header>
+    <h1>Stack Tower</h1>
+    <div class="scores">Height <b id="score">0</b> · Best <b id="best">0</b></div>
+  </header>
+
+  <div class="wrap">
+    <canvas id="c" width="360" height="520" aria-label="Stack Tower game. Tap or press space to drop the block."></canvas>
+    <div class="msg" id="msg">
+      <h2 id="mt">Stack Tower</h2>
+      <p id="mp">Tap to drop the block.<br>Line it up with the one below.</p>
+      <button id="go">Play</button>
+    </div>
+  </div>
+
+  <!-- AD SLOT 2 (bottom banner) -->
+  <div class="ad">
+    <ins class="adsbygoogle" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" data-ad-slot="2222222222" data-ad-format="auto" data-full-width-responsive="true"></ins>
+  </div>
+
+  <footer>
+    <a href="privacy.html">Privacy Policy</a>
+  </footer>
+</div>
+
+<script>
+// Load ads (safe if blocked or placeholder IDs are still in place)
+document.querySelectorAll('.adsbygoogle').forEach(function(){
+  try { (adsbygoogle = window.adsbygoogle || []).push({}); } catch (e) {}
+});
+
+(function(){
+  var cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  var W = 360, H = 520, BH = 26, BASE = 50;
+  var scoreEl = document.getElementById('score'), bestEl = document.getElementById('best');
+  var msg = document.getElementById('msg'), mt = document.getElementById('mt'), mp = document.getElementById('mp'), go = document.getElementById('go');
+  var stack, mover, dir, speed, score, best = 0, state = 'idle', cam = 0, camT = 0, flash = 0, debris = [];
+
+  try { best = parseInt(localStorage.getItem('stack-best') || '0', 10) || 0; } catch (e) {}
+  bestEl.textContent = best;
+
+  function hue(i){ return (190 + i * 9) % 360; }
+
+  function reset(){
+    stack = [{ x: 90, w: 180, h: hue(0) }];
+    score = 0; speed = 2.2; cam = 0; camT = 0; debris = [];
+    spawn();
+    scoreEl.textContent = 0;
+    state = 'play';
+  }
+
+  function spawn(){
+    var top = stack[stack.length - 1];
+    dir = stack.length % 2 ? 1 : -1;
+    mover = { x: dir > 0 ? -top.w : W, w: top.w, h: hue(stack.length) };
+  }
+
+  function drop(){
+    if (state !== 'play') return;
+    var top = stack[stack.length - 1];
+    var left = Math.max(mover.x, top.x), right = Math.min(mover.x + mover.w, top.x + top.w);
+    var overlap = right - left;
+    if (overlap <= 0){
+      debris.push({ x: mover.x, y: stack.length, w: mover.w, h: mover.h, vy: 0 });
+      return end();
+    }
+    var perfect = Math.abs(mover.x - top.x) < 4;
+    if (perfect){
+      stack.push({ x: top.x, w: top.w, h: mover.h }); flash = 12;
+    } else {
+      var cutX = mover.x < top.x ? mover.x : right, cutW = mover.w - overlap;
+      debris.push({ x: cutX, y: stack.length, w: cutW, h: mover.h, vy: 0 });
+      stack.push({ x: left, w: overlap, h: mover.h });
+    }
+    score++; scoreEl.textContent = score;
+    speed = Math.min(2.2 + score * 0.12, 7);
+    camT = Math.max(0, (stack.length - 7) * BH);
+    spawn();
+  }
+
+  function end(){
+    state = 'over';
+    if (score > best){
+      best = score; bestEl.textContent = best;
+      try { localStorage.setItem('stack-best', best); } catch (e) {}
+    }
+    setTimeout(function(){
+      mt.textContent = score + ' blocks';
+      mp.innerHTML = score >= best && score > 0 ? 'New best!' : 'Best: ' + best;
+      go.textContent = 'Play again';
+      msg.classList.remove('hide');
+    }, 600);
+  }
+
+  function yOf(i){ return H - BASE - (i + 1) * BH + cam; }
+
+  function block(x, y, w, h){
+    ctx.fillStyle = 'hsl(' + h + ',65%,58%)'; ctx.fillRect(x, y, w, BH - 2);
+    ctx.fillStyle = 'hsla(0,0%,100%,.18)'; ctx.fillRect(x, y, w, 4);
+  }
+
+  function frame(){
+    cam += (camT - cam) * 0.12;
+    ctx.clearRect(0, 0, W, H);
+    // ground
+    ctx.fillStyle = '#0a151b'; ctx.fillRect(0, H - BASE + cam, W, BASE + 400);
+    for (var i = 0; i < stack.length; i++) block(stack[i].x, yOf(i), stack[i].w, stack[i].h);
+    if (state === 'play'){
+      mover.x += dir * speed;
+      if (mover.x > W - 10 && dir > 0) dir = -1;
+      if (mover.x < 10 - mover.w && dir < 0) dir = 1;
+      block(mover.x, yOf(stack.length), mover.w, mover.h);
+    }
+    for (var d = debris.length - 1; d >= 0; d--){
+      var p = debris[d]; p.vy += 0.6; p.y += p.vy / BH;
+      block(p.x, yOf(p.y), p.w, p.h);
+      if (yOf(p.y) > H + 40) debris.splice(d, 1);
+    }
+    if (flash > 0){
+      ctx.fillStyle = 'rgba(255,255,255,' + (flash / 40) + ')'; ctx.fillRect(0, 0, W, H); flash--;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function start(e){ if (e) e.stopPropagation(); msg.classList.add('hide'); reset(); }
+  go.addEventListener('click', start);
+  cv.addEventListener('pointerdown', function(e){ e.preventDefault(); drop(); });
+  document.addEventListener('keydown', function(e){
+    if (e.code === 'Space'){ e.preventDefault(); if (state === 'play') drop(); else if (msg.classList.contains('hide') === false) start(); }
+  });
+
+  // idle backdrop
+  stack = [{ x: 90, w: 180, h: hue(0) }, { x: 110, w: 160, h: hue(1) }, { x: 80, w: 150, h: hue(2) }];
+  camT = 0; frame();
+})();
+</script>
+</body>
+</html>
